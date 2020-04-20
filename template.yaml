@@ -1,0 +1,460 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Sample code for AWS blog post "Building a GraphQL interface to Amazon QLDB with AWS AppSync"
+
+Globals:
+  Function:
+    Timeout: 20
+
+Resources:
+  ## QLDB ##
+  QldbLedger:
+    Type: AWS::QLDB::Ledger
+    Properties:
+      DeletionProtection: false
+      Name: vehicle-registration
+      PermissionsMode: ALLOW_ALL
+
+  ## Lambda ##
+  # Lambda function to integrate QLDB and AppSync
+  QLDBIntegrationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: QLDBIntegrationFunction
+      Handler: qldb.App::handleRequest
+      Runtime: java11
+      MemorySize: 512
+      Tracing: Active
+      Environment:
+        Variables:
+          QLDB_LEDGER: !Ref QldbLedger
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow 
+              Action:
+                - qldb:ExecuteStatement
+                - qldb:GetRevision
+                - qldb:SendCommand
+              Resource: !Sub "arn:aws:qldb:${AWS::Region}:${AWS::AccountId}:ledger/${QldbLedger}"
+
+  # For more information, see https://github.com/aws-cloudformation/custom-resource-helper
+  LoadSampleDataResourceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: LoadSampleDataResource
+      Handler: custom_resource.handler
+      Runtime: python3.7
+      Timeout: 300
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - qldb:ExecuteStatement
+                - qldb:GetRevision
+                - qldb:SendCommand
+              Resource: !Sub "arn:aws:qldb:${AWS::Region}:${AWS::AccountId}:ledger/${QldbLedger}"
+
+  LoadSampleDataResource:
+    Type: Custom::LoadSampleData
+    Properties:
+      QldbLedger: !Ref QldbLedger
+      ServiceToken: !GetAtt LoadSampleDataResourceFunction.Arn
+
+  ## AppSync ##
+  DmvApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      AuthenticationType: API_KEY
+      Name: DMVApi
+      XrayEnabled: true
+#      LogConfig:
+#        CloudWatchLogsRoleArn: !GetAtt AppSyncServiceRole.Arn
+#        FieldLogLevel: "ALL"
+
+  DmvApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      Description: API Key for DMV API
+
+  DmvSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      DefinitionS3Location: schema.graphql
+
+  ## AppSync -- Queries ##
+  GetVehicleQueryResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Query
+      FieldName: getVehicle
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT * FROM Vehicle AS t WHERE t.VIN = ?",
+                "args": [ "$ctx.args.vin" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          #set( $result = $util.parseJson($ctx.result.result) )
+          $util.toJson($result[0])
+        #end
+
+  GetVehicleRegistrationQueryResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Query
+      FieldName: getVehicleRegistration
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT * FROM VehicleRegistration AS t WHERE t.VIN = ?",
+                "args": [ "$ctx.args.vin" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          #set( $result = $util.parseJson($ctx.result.result) )
+          $util.toJson($result[0])
+        #end
+
+  GetPersonQueryResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Query
+      FieldName: getPerson
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT * FROM Person AS t WHERE t.GovId = ?",
+                "args": [ "$ctx.args.govId" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          #set( $result = $util.parseJson($ctx.result.result) )
+          $util.toJson($result[0])
+        #end
+
+  OwnersFieldResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Owners
+      FieldName: PrimaryOwner
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT * FROM Person as p BY pid WHERE pid = ?",
+                "args": [ "$ctx.source.PrimaryOwner.PersonId" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          #set( $result = $util.parseJson($ctx.result.result) )
+          $util.toJson($result[0])
+        #end
+
+  OwnersSecondaryOwnersFieldResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Owners
+      FieldName: SecondaryOwners
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT * FROM Person as p BY pid WHERE pid IN ?",
+                "args": [ "$ctx.source.SecondaryOwners" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #set( $result = $util.parseJson($ctx.result.result) )
+        $util.toJson($result)
+
+  VehiclesByOwnerQueryResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Query
+      FieldName: vehiclesByOwner
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT id FROM Person AS t BY id WHERE t.GovId = ?",
+                "args": [ "$ctx.args.govId" ]
+              },
+              {
+                "query": "SELECT Vehicle FROM Vehicle INNER JOIN VehicleRegistration AS r ON Vehicle.VIN = r.VIN WHERE r.Owners.PrimaryOwner.PersonId = ?",
+                "args": [ "$.[0].id" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #end
+
+        #set( $vehicles = $util.parseJson($ctx.result.result) )
+        #set( $result = [] )
+        #foreach($v in $vehicles)
+          $util.qr($result.add($v.Vehicle))
+        #end
+        $util.toJson($result)
+
+  GetOwnershipHistoryQueryResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Query
+      FieldName: getOwnershipHistory
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        #set( $months = $util.defaultIfNull($ctx.args.monthsAgo, 3) )
+        #set( $currEpochTime = $util.time.nowEpochMilliSeconds() )
+        #set( $fromEpochTime = $currEpochTime - ($months * 30 * 24 * 60 * 60 * 1000) )
+        #set( $fromTime = $util.time.epochMilliSecondsToISO8601($fromEpochTime) )
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT id FROM VehicleRegistration AS t BY id WHERE t.VIN = ?",
+                "args": [ "$ctx.args.vin" ]
+              },
+              {
+                "query": "SELECT * FROM history(VehicleRegistration, `$fromTime`) AS h WHERE h.metadata.id = ?",
+                "args": [ "$.[0].id" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #end
+
+        #set( $result = $util.parseJson($ctx.result.result) )
+        #set( $history = [] )
+
+        #foreach($item in $result)
+          #set( $data = $item.data )
+          ## Need to set the type of each history item ... could try to make this more dynamic
+          $util.qr($data.put("__typename", "VehicleRegistration"))
+          #set( $h = {
+            "id": "$item.metadata.id",
+            "version": $item.metadata.version,
+            "txTime": "$item.metadata.txTime",
+            "txId": "$item.metadata.txId",
+            "hash": "$item.hash",
+            "data": $data
+          } )
+          $util.qr($history.add($h))
+        #end
+        $util.toJson($history)
+
+
+  ## AppSync -- Mutations ##
+  UpdateVehicleOwnerMutation:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Mutation
+      FieldName: updateVehicleOwner
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT id FROM Person AS t BY id WHERE t.GovId = ?",
+                "args": [ "$ctx.args.govId" ]
+              },
+              {
+                "query": "UPDATE VehicleRegistration AS v SET v.Owners.PrimaryOwner.PersonId = ? WHERE v.VIN = ?",
+                "args": [ "$.[0].id", "$ctx.args.vin" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          $util.toJson($ctx.result.success)
+        #end
+
+  AddSecondaryOwnerMutation:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      TypeName: Mutation
+      FieldName: addSecondaryOwner
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT id FROM Person AS t BY id WHERE t.GovId = ?",
+                "args": [ "$ctx.args.govId" ]
+              },
+              {
+                "query": "FROM VehicleRegistration AS v WHERE v.VIN = ? INSERT INTO v.Owners.SecondaryOwners VALUE ?",
+                "args": [ "$ctx.args.vin", "$.[0].id" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #if ($ctx.result.error)
+          $utils.error($ctx.result.error)
+        #else
+          $util.toJson($ctx.result.success)
+        #end
+
+  ## AppSync -- Pipeline Resolver Functions ##
+  GetDocumentByIdFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      Name: GetDocumentById
+      Description: Get the document ID of a particular QLDB document.
+      DataSourceName: !GetAtt QLDBIntegrationDataSource.Name
+      FunctionVersion: "2018-05-29"
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "action": "Query",
+            "payload": [
+              {
+                "query": "SELECT id FROM $ctx.args.tableName AS t BY id WHERE t.$ctx.args.fieldName = ?",
+                "args": [ "$ctx.args.id" ]
+              }
+            ]
+          }
+        }
+      ResponseMappingTemplate: |
+        #set($result = $util.parseJson($ctx.result.result))
+        $util.toJson($result[0].id)
+
+
+  ## AppSync -- Data Sources ##
+  QLDBIntegrationDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt DmvApi.ApiId
+      Name: QldbIntegration
+      Description: Lambda function to integrate with QLDB
+      Type: AWS_LAMBDA
+      ServiceRoleArn: !GetAtt AppSyncServiceRole.Arn
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt QLDBIntegrationFunction.Arn
+
+  AppSyncServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - appsync.amazonaws.com
+      Policies:
+        - PolicyName: aws-appsync-qldb-integration-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt QLDBIntegrationFunction.Arn
+
+Outputs:
+  ApiEndpoint:
+    Description: AppSync API Endpoint
+    Value: !GetAtt DmvApi.GraphQLUrl
+
+  ApiKey:
+    Description: AppSync API Key
+    Value: !GetAtt DmvApiKey.ApiKey

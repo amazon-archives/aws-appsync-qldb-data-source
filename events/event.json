@@ -1,0 +1,17 @@
+{
+  "action": "Query",
+  "payload": [
+    {
+      "query": "SELECT id FROM Person AS t BY id WHERE t.GovId = ?",
+      "args": [
+        "LOGANB486CG"
+      ]
+    },
+    {
+      "query": "SELECT Vehicle FROM Vehicle INNER JOIN VehicleRegistration AS r ON Vehicle.VIN = r.VIN WHERE r.Owners.PrimaryOwner.PersonId = ?",
+      "args": [
+        "$.[0].id"
+      ]
+    }
+  ]
+}

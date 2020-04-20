@@ -1,0 +1,17 @@
+{
+  "action": "Query",
+  "payload": [
+    {
+      "query": "SELECT id FROM VehicleRegistration AS t BY id WHERE t.VIN = ?",
+      "args": [
+        "3HGGK5G53FM761765"
+      ]
+    },
+    {
+      "query": "SELECT * FROM history(VehicleRegistration, `2019-12-01T00:00:00Z`) AS h WHERE h.metadata.id = ?",
+      "args": [
+        "$.[0].id"
+      ]
+    }
+  ]
+}

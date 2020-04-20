@@ -1,0 +1,9 @@
+.DS_Store
+.aws-sam/
+.idea/
+samconfig.toml
+*.iml
+
+**/target/
+bin/*
+/modules/**/target

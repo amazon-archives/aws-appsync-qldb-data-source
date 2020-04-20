@@ -1,0 +1,72 @@
+
+type Person {
+   FirstName: String!
+   LastName: String!
+   DOB: AWSDate
+   GovId: ID!
+   GovIdType: String
+   Address: String
+}
+
+type Owner {
+   PersonId: ID!
+}
+
+type Owners {
+   PrimaryOwner: Person!
+   SecondaryOwners: [Person]  # this needs to be fixed to resolve properly
+}
+
+type Vehicle {
+   VIN: ID!
+   Type: String
+   Year: Int
+   Make: String
+   Model: String
+   Color: String
+}
+
+type VehicleRegistration {
+   VIN: ID!
+   LicensePlateNumber: String!
+   State: String
+   City: String
+   PendingPenaltyTicketAmount: Float
+   ValidFromDate: AWSDateTime!
+   ValidToDate: AWSDateTime!
+   Owners: Owners
+}
+
+## History ##
+type History {
+   id: ID!
+   version: Int!
+   txTime: AWSDateTime!
+   txId: ID!
+   data: HistoryData
+   hash: String!
+}
+
+union HistoryData = Person | Owner | Vehicle | VehicleRegistration
+
+## Query ##
+type Query {
+   getVehicle(vin:ID!):Vehicle
+   getVehicleRegistration(vin:ID!):VehicleRegistration
+   getPerson(govId:ID!):Person
+
+   getOwnershipHistory(vin:ID!, monthsAgo:Int):[History]
+
+   vehiclesByOwner(govId:ID!):[Vehicle]
+}
+
+## Mutation ##
+type Mutation {
+   updateVehicleOwner(vin:ID!, govId:ID!):Boolean
+   addSecondaryOwner(vin:ID!, govId:ID!):Boolean
+}
+
+schema {
+   query: Query
+   mutation: Mutation
+}
