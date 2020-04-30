@@ -21,6 +21,7 @@ This project requires the following prerequisites:
 
 * [AWS Account](https://aws.amazon.com/account/)
 * [Java 11](https://docs.aws.amazon.com/corretto/latest/corretto-11-ug/what-is-corretto-11.html)
+* [Maven](https://maven.apache.org/install.html)
 * [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html)
 
 > Note: AWS offers a [Free Tier](https://aws.amazon.com/free/) for many services, though not all used in this project are part of the Free Tier.
