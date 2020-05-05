@@ -6,8 +6,8 @@ Pairing QLDB with services such as [AWS AppSync](https://aws.amazon.com/appsync/
 
 This sample project accompanies a series of blog posts on the [AWS Database Blog](https://aws.amazon.com/blogs/database/):
 
-* [Part 1: Building a GraphQL interface to Amazon QLDB with AWS AppSync](https://aws.amazon.com/blogs/database/)
-* [Part 2: Building a GraphQL interface to Amazon QLDB with AWS AppSync](https://aws.amazon.com/blogs/database/)
+* [Part 1: Building a GraphQL interface to Amazon QLDB with AWS AppSync](https://aws.amazon.com/blogs/database/part-1-building-a-graphql-interface-to-amazon-qldb-with-aws-appsync/)
+* [Part 2: Building a GraphQL interface to Amazon QLDB with AWS AppSync](https://aws.amazon.com/blogs/database/part-2-building-a-graphql-interface-to-amazon-qldb-with-aws-appsync/)
 
 ## Getting Started
 
